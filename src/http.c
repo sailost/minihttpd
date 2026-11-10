@@ -104,3 +104,37 @@ int analizar_solicitud(const char *datos, size_t longitud, SolicitudHTTP *solici
 
     return 1;
 }
+
+const char *mensaje_estado(int codigo) {
+    switch (codigo) {
+        case 200: return "OK";
+        case 400: return "Bad Request";
+        case 403: return "Forbidden";
+        case 404: return "Not Found";
+        case 405: return "Method Not Allowed";
+        case 500: return "Internal Server Error";
+        default: return "Internal Server Error";
+    }
+}
+
+int generar_encabezado(char *buffer, size_t capacidad, int codigo,
+                       const char *tipo, size_t tamano, int persistente) {
+    if (buffer == NULL || tipo == NULL || capacidad == 0) {
+        return -1;
+    }
+
+    int longitud = snprintf(buffer, capacidad,
+        "HTTP/1.1 %d %s\r\n"
+        "Content-Type: %s\r\n"
+        "Content-Length: %zu\r\n"
+        "Connection: %s\r\n"
+        "\r\n",
+        codigo, mensaje_estado(codigo), tipo, tamano,
+        persistente ? "keep-alive" : "close");
+
+    if (longitud < 0 || (size_t)longitud >= capacidad) {
+        return -1;
+    }
+
+    return longitud;
+}

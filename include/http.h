@@ -15,4 +15,9 @@ typedef struct {
 
 int analizar_solicitud(const char *datos, size_t longitud, SolicitudHTTP *solicitud);
 
+const char *mensaje_estado(int codigo);
+
+int generar_encabezado(char *buffer, size_t capacidad, int codigo,
+                      const char *tipo, size_t tamano, int persistente);
+
 #endif
