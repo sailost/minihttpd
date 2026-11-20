@@ -2,7 +2,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
+#include <unistd.h>
 #include "http.h"
+#include "files.h"
+#include "mime.h"
 
 static int guardar_valor(char *destino, size_t capacidad, const char *valor) {
     size_t longitud = strlen(valor);
@@ -19,7 +22,6 @@ int analizar_solicitud(const char *datos, size_t longitud, SolicitudHTTP *solici
     if (datos == NULL || solicitud == NULL || longitud > 8192) {
         return -1;
     }
-
     if (memchr(datos, '\0', longitud) != NULL) {
         return -1;
     }
@@ -44,7 +46,6 @@ int analizar_solicitud(const char *datos, size_t longitud, SolicitudHTTP *solici
     memset(solicitud, 0, sizeof(SolicitudHTTP));
 
     char extra;
-
     if (sscanf(texto, "%15s %511s %15s %c",
                solicitud->metodo, solicitud->ruta,
                solicitud->version, &extra) != 3) {
@@ -64,13 +65,11 @@ int analizar_solicitud(const char *datos, size_t longitud, SolicitudHTTP *solici
 
     while (linea < fin) {
         char *siguiente = strstr(linea, "\r\n");
-
         if (siguiente == NULL || siguiente > fin) {
             return -1;
         }
 
         *siguiente = '\0';
-
         char *separador = strchr(linea, ':');
 
         if (separador == NULL || separador == linea) {
@@ -84,12 +83,25 @@ int analizar_solicitud(const char *datos, size_t longitud, SolicitudHTTP *solici
             valor++;
         }
 
+        char *final = valor + strlen(valor);
+
+        while (final > valor &&
+               (final[-1] == ' ' || final[-1] == '\t')) {
+            *--final = '\0';
+        }
+
         if (strcasecmp(linea, "Host") == 0) {
             if (guardar_valor(solicitud->host, sizeof(solicitud->host), valor) == -1)
                 return -1;
         } else if (strcasecmp(linea, "Connection") == 0) {
             if (guardar_valor(solicitud->conexion, sizeof(solicitud->conexion), valor) == -1)
                 return -1;
+
+            char *parte = strtok(solicitud->conexion, ", \t");
+            while (parte != NULL && strcasecmp(parte, "close") != 0)
+                parte = strtok(NULL, ", \t");
+            if (parte != NULL)
+                memcpy(solicitud->conexion, "close", 6);
         } else if (strcasecmp(linea, "User-Agent") == 0) {
             if (guardar_valor(solicitud->user_agent, sizeof(solicitud->user_agent), valor) == -1)
                 return -1;
@@ -137,4 +149,38 @@ int generar_encabezado(char *buffer, size_t capacidad, int codigo,
     }
 
     return longitud;
+}
+
+int preparar_respuesta(RespuestaHTTP *respuesta, int codigo,
+                      const char *ruta, int persistente) {
+    if (respuesta == NULL) {
+        return -1;
+    }
+
+    respuesta->archivo = -1;
+    respuesta->tamano = 0;
+    respuesta->posicion = 0;
+    respuesta->cabecera_enviada = 0;
+
+    const char *tipo = "text/plain";
+
+    if (codigo == 200) {
+        codigo = abrir_archivo(ruta, &respuesta->archivo, &respuesta->tamano);
+
+        if (codigo == 200) {
+            tipo = obtener_mime(strcmp(ruta, "/") == 0 ? "index.html" : ruta);
+        }
+    }
+
+    respuesta->largo_cabecera = generar_encabezado(
+        respuesta->cabecera, sizeof(respuesta->cabecera),
+        codigo, tipo, (size_t)respuesta->tamano, persistente
+    );
+
+    if (respuesta->largo_cabecera == -1 && respuesta->archivo != -1) {
+        close(respuesta->archivo);
+        respuesta->archivo = -1;
+    }
+
+    return respuesta->largo_cabecera;
 }
